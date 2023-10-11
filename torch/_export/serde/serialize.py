@@ -17,6 +17,7 @@ import sympy
 
 import torch
 import torch.export.exported_program as ep
+from torch.export import InputDim
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 from torch.fx.experimental import symbolic_shapes
 from torch.utils._pytree import tree_map_only, treespec_dumps, treespec_loads
@@ -309,7 +310,7 @@ def serialize_range_constraints(
 
 
 def serialize_equality_constraints(
-    equality_constraints: List[Tuple[torch._export.exported_program.InputDim, torch._export.exported_program.InputDim]]
+    equality_constraints: List[Tuple[InputDim, InputDim]]
 ) -> List[Tuple[Tuple[str, int], Tuple[str, int]]]:
     return [
         ((v1.input_name, v1.dim), (v2.input_name, v2.dim))
@@ -319,7 +320,7 @@ def serialize_equality_constraints(
 
 def deserialize_equality_constraints(
     equality_constraints: List[Tuple[Tuple[str, int], Tuple[str, int]]]
-) -> List[Tuple[torch._export.exported_program.InputDim, torch._export.exported_program.InputDim]]:
+) -> List[Tuple[InputDim, InputDim]]:
     return [
         (torch._export.exported_program.InputDim(v1[0], v1[1]), torch._export.exported_program.InputDim(v2[0], v2[1]))
         for (v1, v2) in equality_constraints

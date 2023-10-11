@@ -7,7 +7,17 @@ import pathlib
 import sys
 import typing
 from enum import auto, Enum
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import sympy
 
@@ -35,6 +45,7 @@ __all__ = [
     "ExportBackwardSignature",
     "ExportGraphSignature",
     "ExportedProgram",
+    "InputDim",
     "ModuleCallEntry",
     "ModuleCallSignature",
     "dims",
