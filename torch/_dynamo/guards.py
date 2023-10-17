@@ -190,7 +190,7 @@ class GuardBuilder(GuardBuilderBase):
         self,
         id_ref: Callable[[Type[object]], str],
         source_ref: Callable[[Source], str],
-        lookup_weakrefs: Callable[[Type[object]], ReferenceType[object]],
+        lookup_weakrefs: Callable[[object], ReferenceType[object]],
         local_scope: Dict[str, object],
         global_scope: Dict[str, object],
         check_fn_manager: CheckFunctionManager,
@@ -314,7 +314,7 @@ class GuardBuilder(GuardBuilderBase):
             # optional optimization to produce cleaner/faster guard code
             return self.TYPE_MATCH(
                 Guard(
-                    guard.originating_source.base, guard.source, GuardBuilder.TYPE_MATCH
+                    guard.originating_source.base, guard.source, GuardBuilder.TYPE_MATCH  # type: ignore[arg-type]
                 )
             )
 
@@ -928,7 +928,7 @@ class CheckFunctionManager:
     def __init__(
         self,
         output_graph=None,
-        guard_fail_fn: Optional[Callable[[Tuple[str, str]], None]] = None,
+        guard_fail_fn: Optional[Callable[[GuardFail], None]] = None,
     ):
         guards = output_graph.guards if output_graph else None
         self.valid = True

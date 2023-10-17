@@ -1,5 +1,5 @@
 import math
-from enum import Enum
+from enum import IntEnum
 
 import torch
 from . import ir
@@ -8,30 +8,30 @@ from .utils import get_dtype_size, sympy_product
 from .virtualized import V
 
 
-class NCCL_COLL(Enum):
+class NCCL_COLL(IntEnum):
     ALL_REDUCE = 0
     ALL_GATHER = 1
     REDUCE_SCATTER = 2
 
 
-class NCCL_HW(Enum):
+class NCCL_HW(IntEnum):
     NVLINK = 0
     PCI = 1
     NET = 2
 
 
-class NCCL_ALGO(Enum):
+class NCCL_ALGO(IntEnum):
     TREE = 0
     RING = 1
 
 
-class NCCL_PROTO(Enum):
+class NCCL_PROTO(IntEnum):
     SIMPLE = 0
     LL = 1
     LL128 = 2
 
 
-class NVIDIA_GPU_TYPE(Enum):
+class NVIDIA_GPU_TYPE(IntEnum):
     VOLTA = 0
     AMPERE = 1
     HOPPER = 2
@@ -184,7 +184,7 @@ def estimate_nccl_collective_runtime(snode: "BaseSchedulerNode") -> float:  # ty
 
     # Various model refinements
     busBw = min(
-        llMaxBw,
+        llMaxBw.item(),
         busBw
         * (1.0 / 4.0 if (nNodes > 1 or coll == NCCL_COLL.ALL_REDUCE) else 1.0 / 3.0),
     )
@@ -222,7 +222,7 @@ def estimate_nccl_collective_runtime(snode: "BaseSchedulerNode") -> float:  # ty
     netOverhead = 0.0
     if nNodes > 1:
         netOverhead = 1.0  # getNetOverhead(comm);
-    intraLat = max(intraLat, netOverhead)
+    intraLat = max(intraLat.item(), netOverhead)
     latency += (nsteps - nInterSteps) * intraLat + nInterSteps * interLat
     # Convert us to ns
     latency_ns = latency * 1e3
