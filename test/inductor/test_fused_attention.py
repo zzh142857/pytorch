@@ -8,13 +8,12 @@ import torch._inductor.config
 import torch.utils.checkpoint
 from torch._dynamo.test_case import run_tests, TestCase
 from torch._dynamo.utils import counters
-from torch._inductor.utils import run_and_get_code
 from torch.testing._internal.common_cuda import (
     PLATFORM_SUPPORTS_FUSED_ATTENTION,
     SM80OrLater,
 )
 from torch.testing._internal.common_utils import IS_LINUX, skipIfRocm
-from torch.testing._internal.inductor_utils import HAS_CPU, HAS_CUDA
+from torch.testing._internal.inductor_utils import HAS_CPU, HAS_CUDA, run_and_get_code
 
 
 def checkpoint_wrapper(fn):
@@ -68,7 +67,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
 
             counters.clear()
             torch.manual_seed(1234)
-            result2, (source_code,) = run_and_get_code(
+            result2, source_code = run_and_get_code(
                 torch.compile(dot_prod_attention, fullgraph=True),
                 *(args2 + dropout_arg),
             )
@@ -145,7 +144,7 @@ class TestSDPAPatternRewriterTemplate(TestCase):
             torch.randn(tensor_shape, device=self.device),
             torch.randn(tensor_shape, device=self.device),
         ]
-        _, (source_code,) = run_and_get_code(dot_prod_attention, *args)
+        _, source_code = run_and_get_code(dot_prod_attention, *args)
         self.assertNotIn("aten._scaled_dot_product_efficient_attention", source_code)
 
     @skipIfRocm
