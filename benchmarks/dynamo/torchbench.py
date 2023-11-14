@@ -454,7 +454,8 @@ class TorchBenchmarkRunner(BenchmarkRunner):
         if self.args.trace_on_xla:
             # work around for: https://github.com/pytorch/xla/issues/4174
             import torch_xla  # noqa: F401
-        self.validate_model(model, example_inputs)
+        # self.validate_model(model, example_inputs)
+        model, example_inputs = self.cast_based_on_args(model, example_inputs)
         return device, benchmark.name, model, example_inputs, batch_size
 
     def iter_model_names(self, args):

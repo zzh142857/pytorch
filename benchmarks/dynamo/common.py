@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import abc
+import gc
 
 import argparse
 import collections
@@ -101,6 +102,32 @@ current_batch_size = None
 output_filename = None
 
 MAX_DOWNLOAD_ATTEMPTS = 5
+
+HACK_RUNNER = None
+HACK_FSDP = None
+HACK_DEVICE = None
+HACK_MODEL_NAME = None
+HACK_BATCH_SIZE = None
+HACK_EXTRA_ARGS = None
+
+def new_load_model():
+    global HACK_RUNNER
+    global HACK_FSDP
+    global HACK_DEVICE
+    global HACK_MODEL_NAME
+    global HACK_BATCH_SIZE
+    global HACK_EXTRA_ARGS
+
+    device = HACK_DEVICE
+    if HACK_FSDP:
+        device = "cpu"
+
+    return HACK_RUNNER.load_model(
+        device,
+        HACK_MODEL_NAME,
+        batch_size=HACK_BATCH_SIZE,
+        extra_args=HACK_EXTRA_ARGS,
+    )
 
 
 class CI(NamedTuple):
@@ -692,6 +719,8 @@ def speedup_experiment(args, model_iter_fn, model, example_inputs, **kwargs):
     # if args.dynamic_shapes:
     #     return speedup_experiment_ds(args, model_iter_fn, model, example_inputs)
 
+    print("speedup_experiment")
+
     timings = np.zeros((args.repeat, 2), np.float64)
     # if we randomize the input, we should also check the result is correct
     should_randomize_input = args.randomize_input
@@ -716,6 +745,12 @@ def speedup_experiment(args, model_iter_fn, model, example_inputs, **kwargs):
     # graph size changes
     tolerance = args.xla_tolerance if args.trace_on_xla else 1e-4
     torch._dynamo.config.repro_tolerance = tolerance
+
+    torch.cuda.synchronize()
+    gc.collect()
+    gc.collect()
+    gc.collect()
+    torch.cuda.empty_cache()
 
     with maybe_profile(args.export_profiler_trace) as p:
         if args.export_aot_inductor:
@@ -2109,15 +2144,17 @@ class BenchmarkRunner:
                 except NotImplementedError:
                     continue  # bad benchmark implementation
 
-    def deepcopy_model(self, model):
-        return copy.deepcopy(model)
+    # def deepcopy_model(self, model):
+    #     return copy.deepcopy(model)
 
     def cast_based_on_args(self, model, example_inputs):
         if self.args.float32 or self.args.only in self.fp32_only_models:
+            print("casting to fp32")
             if not self.args.float32:
                 log.warning("Model %s supports float32 only", self.args.only)
             model, example_inputs = cast_to_fp32(model, example_inputs)
         elif self.args.float16:
+            print("casting to fp16")
             if self.args.only in self.force_amp_for_fp16_bf16_models:
                 log.warning(
                     "Model %s does not support float16, running with amp instead",
@@ -2128,6 +2165,7 @@ class BenchmarkRunner:
             else:
                 model, example_inputs = cast_to_fp16(model, example_inputs)
         elif self.args.bfloat16:
+            print("casting to bf16")
             if self.args.only in self.force_amp_for_fp16_bf16_models:
                 log.warning(
                     "Model %s does not support bfloat16, running with amp instead",
@@ -2154,8 +2192,8 @@ class BenchmarkRunner:
             raise NotImplementedError("Eager model failed to run") from e
 
     def maybe_cast(self, model, example_inputs):
-        model = self.deepcopy_model(model)
-        example_inputs = clone_inputs(example_inputs)
+        # model = self.deepcopy_model(model)
+        # example_inputs = clone_inputs(example_inputs)
         model, example_inputs = self.cast_based_on_args(model, example_inputs)
         return model, example_inputs
 
@@ -2244,7 +2282,7 @@ class BenchmarkRunner:
         return ModuleWrapPolicy(MODEL_FSDP_WRAP[model_name])
 
     def deepcopy_and_maybe_parallelize(self, model):
-        model = self.deepcopy_model(model)
+        # model = self.deepcopy_model(model)
         if self.args.ddp:
             assert (
                 torch.distributed.is_available()
@@ -2733,6 +2771,7 @@ class BenchmarkRunner:
         explain=False,
         tag=None,
     ):
+        print("run_one_model")
         mode = "train" if self.args.training else "eval"
         msg = f"{current_device:4} {mode:5} {current_name:34} "
         if tag:
@@ -3759,49 +3798,42 @@ def run(runner, args, original_dir=None):
                                 str(args.world_size),
                             ]
 
-                        if args.part:
+                        global HACK_RUNNER
+                        global HACK_FSDP
+                        global HACK_DEVICE
+                        global HACK_MODEL_NAME
+                        global HACK_BATCH_SIZE
+                        global HACK_EXTRA_ARGS
+
+                        HACK_RUNNER = runner
+                        HACK_FSDP = args.fsdp
+                        HACK_DEVICE = device
+                        HACK_MODEL_NAME = model_name
+                        HACK_BATCH_SIZE = batch_size
+                        HACK_EXTRA_ARGS = extra_args
+
+                        if args.fsdp:
+                            # Always load model on cpu for fsdp
+                            # When initializing FSDP, we will use the cuda device if args.cuda is set
+                            (
+                                _,
+                                name,
+                                model,
+                                example_inputs,
+                                batch_size,
+                            ) = new_load_model()
+                        else:
                             (
                                 device,
                                 name,
                                 model,
                                 example_inputs,
                                 batch_size,
-                            ) = runner.load_model(
-                                device,
-                                model_name,
-                                batch_size=batch_size,
-                                part=args.part,
-                                extra_args=extra_args,
-                            )
-                        else:
-                            if args.fsdp:
-                                # Always load model on cpu for fsdp
-                                # When initializing FSDP, we will use the cuda device if args.cuda is set
-                                (
-                                    _,
-                                    name,
-                                    model,
-                                    example_inputs,
-                                    batch_size,
-                                ) = runner.load_model(
-                                    "cpu",
-                                    model_name,
-                                    batch_size=batch_size,
-                                    extra_args=extra_args,
-                                )
-                            else:
-                                (
-                                    device,
-                                    name,
-                                    model,
-                                    example_inputs,
-                                    batch_size,
-                                ) = runner.load_model(
-                                    device,
-                                    model_name,
-                                    batch_size=batch_size,
-                                    extra_args=extra_args,
-                                )
+                            ) = new_load_model()
+
+                        torch.cuda.synchronize()
+                        print(f"torch.cuda.memory_allocated()= {torch.cuda.memory_allocated()}")
+                        print(f"torch.cuda.memory_reserved()= {torch.cuda.memory_reserved()}")
                 except NotImplementedError as e:
                     print(e)
                     import traceback
@@ -3810,57 +3842,11 @@ def run(runner, args, original_dir=None):
                     logging.warning("%s failed to load", args.only)
                     continue  # bad benchmark implementation
 
-            if args.trace_on_xla:
-                xla_dev = xm.xla_device()
-                model = model.to(device=xla_dev)
-                example_inputs = tree_map_only(
-                    torch.Tensor, lambda x: x.to(device=xla_dev), example_inputs
-                )
-
             current_name = name
             current_device = device
             current_batch_size = batch_size
             set_model_name(name)
 
-            # Look for stuff that looks like batch size, and mark it dynamic.
-            # Better integration would integrate directly with benchmark suite
-            # but cannot conveniently do this
-            # NB: This must be done late enough so that we don't do more
-            # conversions on the inputs
-            # NB: Assumes only the first batch-y like dimension is the batch
-            marked = False
-
-            def detect_and_mark_batch(t):
-                nonlocal marked
-                for i, s in enumerate(t.size()):
-                    if s == batch_size:
-                        torch._dynamo.mark_dynamic(t, i)
-                        marked = True
-                        break
-
-            if (
-                args.dynamic_batch_only
-                and batch_size > 1
-                and model_name not in CI_SKIP_DYNAMIC_BATCH_ONLY
-            ):
-                tree_map_only(torch.Tensor, detect_and_mark_batch, example_inputs)
-                assert marked, f"nothing in example_inputs had a dim with {batch_size}"
-
-            if args.log_operator_inputs:
-                log_operator_inputs(
-                    model, example_inputs, runner.model_iter_fn, name, args
-                )
-                continue
-
-            if args.per_process_memory_fraction != 1:
-                torch.cuda.set_per_process_memory_fraction(
-                    args.per_process_memory_fraction
-                )
-            if model_name in DO_NOT_CAST_INPUTS:
-                model, _ = runner.cast_based_on_args(model, example_inputs)
-
-            else:
-                model, example_inputs = runner.cast_based_on_args(model, example_inputs)
             runner.run_one_model(
                 name,
                 model,
