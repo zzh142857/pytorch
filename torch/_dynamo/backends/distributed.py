@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 import torch
 from torch import fx
 from torch._dynamo.output_graph import GraphCompileReason
-from torch._dynamo.utils import deepcopy_to_fake_tensor, detect_fake_mode
+from torch._dynamo.utils import detect_fake_mode
 from torch.fx.node import Node
 
 log = logging.getLogger(__name__)
@@ -403,39 +403,28 @@ or file a github issue."""
             # to match what aot_autograd expects. See Note: [Fake Modules and AOTAutograd]
             def run_node(self, n: Node) -> Any:
                 args, kwargs = self.fetch_args_kwargs_from_env(n)
-                new_args = []
-                assert fake_mode
-                for arg in args:
-                    if isinstance(arg, torch.Tensor) and not isinstance(
-                        arg, torch._subclasses.FakeTensor
-                    ):
-                        new_args.append(
-                            torch._dynamo.utils.to_fake_tensor(arg, fake_mode)
-                        )
-                    else:
-                        new_args.append(arg)
+                assert not detect_fake_mode(
+                    args
+                ), "Expected all real args, but got fake tensors"
+                assert not detect_fake_mode(
+                    kwargs
+                ), "Expected all real kwargs, but got fake tensors"
 
                 log.debug("run_node %s, %s got args %s", n.op, n.target, args_str(args))
                 assert isinstance(args, tuple)
                 assert isinstance(kwargs, dict)
 
                 if n.op == "call_module":
-                    real_mod = self.fetch_attr(n.target)
-                    if fake_mode:
-                        curr_submod = deepcopy_to_fake_tensor(real_mod, fake_mode)
-                    else:
-                        curr_submod = real_mod
-
+                    curr_submod = self.fetch_attr(n.target)
                     ddp_graph_log.debug(
                         "\n---%s graph---\n%s", n.target, curr_submod.graph
                     )
 
-                    # When calling the compiler on the submod, inputs (new_args) are expected to
-                    # be FakeTensors already since Dynamo would have made them FakeTensors in the
-                    # non-DDP flow.  However, the parameters are _not_ expected to be FakeTensors,
-                    # since this wrapping happens during compilation
+                    # Previously we converted the 'real' module params to FakeTensor, to mimic
+                    # that dynamo would have provided fake parameters before invoking the backend compiler.
+                    # however, now we are just using real parameters.
                     compiled_submod_real = self.compile_submod(
-                        real_mod, new_args, kwargs
+                        curr_submod, args, kwargs
                     )
 
                     # We update the original (outer) graph with a call into the compiled module
@@ -445,18 +434,33 @@ or file a github issue."""
                     self.module.add_submodule(n.target, compiled_submod_real)
 
                     # Finally, we have to produce inputs for use compiling the next submodule,
-                    # and these need to be FakeTensors, so we execute the module under fake_mode
-                    with fake_mode:
-                        return curr_submod(*new_args, **kwargs)
+                    # and these need to be Real, so inductor strides are faithfully captured
+                    return curr_submod(*args, **kwargs)
                 else:
                     # placeholder or output nodes don't need to get compiled, just executed
-                    return getattr(self, n.op)(n.target, new_args, kwargs)
+                    return getattr(self, n.op)(n.target, args, kwargs)
 
-        submod_compiler = SubmodCompiler(split_gm, self.backend_compile_fn)
-        submod_compiler.run(*example_inputs)
-        split_gm.recompile()
+        class DDPOptimizedModule(torch.nn.Module):
+            # TODO: can't directly subclass OptimizedModule as it needs a dynamo context and it does some stuff i'm not sure is oK
+            # but nn.Module wont' work either unless we replicate fqn handling of OptimizedModule
+            def __init__(self, split_gm, backend_compile_fn):
+                super().__init__()
+                self.split_gm = split_gm
+                self.compiled = False
+                self.backend_compile_fn = backend_compile_fn
 
-        ddp_graph_log.debug(
-            "\n---final graph---\n%s\n---------------\n", split_gm.graph
-        )
-        return split_gm
+            def forward(self, *args):
+                if not self.compiled:
+                    submod_compiler = SubmodCompiler(split_gm, self.backend_compile_fn)
+                    out = submod_compiler.run(*args)
+                    split_gm.recompile()
+
+                    ddp_graph_log.debug(
+                        "\n---final graph---\n%s\n---------------\n", split_gm.graph
+                    )
+                    self.compiled = True
+                    return out
+                else:
+                    return self.split_gm(*args)
+
+        return DDPOptimizedModule(split_gm, self.backend_compile_fn)
