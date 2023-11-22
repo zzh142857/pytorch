@@ -106,6 +106,20 @@ class TestDTensorCompile(torch._dynamo.test_case.TestCase):
         res = opt_fn(x)
         self.assertEqual(res, ref)
 
+    def test_fakify_dtensor_dynamic(self):
+        mesh = DeviceMesh(self.device_type, torch.arange(self.world_size))
+
+        # pass in DTensor as inputs/outputs to the function
+        def fn(x):
+            return x
+
+        x = DTensor.from_local(torch.rand(1), mesh, [Shard(0)], run_check=False)
+        ref = fn(x)
+
+        opt_fn = torch.compile(fn, backend="aot_eager", fullgraph=True, dynamic=True)
+        with self.assertRaisesRegex(RuntimeError, "DTensor does not yet support dynamic"):
+            res = opt_fn(x)
+
     def test_dynamo_dtensor(self):
         mesh = DeviceMesh(self.device_type, torch.arange(self.world_size))
 
