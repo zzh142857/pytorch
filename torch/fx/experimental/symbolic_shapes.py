@@ -743,8 +743,10 @@ class FreshCreateSymbolicPolicy(CreateSymbolicPolicy):
     This will cause fresh symbols to be allocated
     """
     dynamic_sizes: DimList[DimDynamic]
-    constraint_sizes: DimList[DimConstraint] = None
-    # TODO: add storage offset and stride policy
+    constraint_sizes: DimList[DimConstraint]
+    dynamic_offset: DimDynamic
+    constraint_offset: Optional[DimConstraint] = None
+    # TODO: add stride policy
 
     def __post_init__(self):
         if self.constraint_sizes is None:
@@ -2041,7 +2043,12 @@ class ShapeEnv:
                     r = DimDynamic.DUCK
                 dynamic_dims.append(r)
             dynamic_dims = [DimDynamic.DUCK] * dim
-            policy = FreshCreateSymbolicPolicy(dynamic_sizes=dynamic_dims, constraint_sizes=constraint_dims)
+            policy = FreshCreateSymbolicPolicy(
+                dynamic_sizes=dynamic_dims,
+                constraint_sizes=constraint_dims,
+                dynamic_offset=DimDynamic.DYNAMIC,
+                constraint_offset=None,
+            )
 
         assert isinstance(policy, FreshCreateSymbolicPolicy)
         constraint_dims = policy.constraint_sizes
@@ -2110,8 +2117,11 @@ class ShapeEnv:
         sym_storage_offset = self.create_symintnode(self.create_symbol(
             ex_storage_offset,
             TensorPropertySource(source, TensorProperty.STORAGE_OFFSET),
-            dynamic_dim=DimDynamic.DYNAMIC,
+            dynamic_dim=DimDynamic.DYNAMIC,  # TODO
             constraint_dim=None,
+            # TODO: I don't think we want to specialize on 0/1 for storage offset?
+            # But do_not_specialize_zero_one=False fails assertion for dynamic shape w/ example = 1
+            # do_not_specialize_zero_one=True,
         ), hint=ex_storage_offset, source=TensorPropertySource(source, TensorProperty.STORAGE_OFFSET))
         return tuple(sym_sizes), tuple(sym_stride), sym_storage_offset
 

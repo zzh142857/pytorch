@@ -338,13 +338,19 @@ class SubclassTests(torch._dynamo.test_case.TestCase):
                 x_fake = fake_mode.from_tensor(
                     x,
                     policy=FreshCreateSymbolicPolicy(
-                        dynamic_sizes=[dim_dynamic for i in range(x.dim())]
+                        dynamic_sizes=[dim_dynamic for i in range(x.dim())],
+                        constraint_sizes=[None] * x.dim(),
+                        dynamic_offset=DimDynamic.DYNAMIC,
+                        constraint_offset=None,
                     ),
                 )
                 x1_fake = fake_mode.from_tensor(
                     x1,
                     policy=FreshCreateSymbolicPolicy(
-                        dynamic_sizes=[dim_dynamic for i in range(x.dim())]
+                        dynamic_sizes=[dim_dynamic for i in range(x.dim())],
+                        constraint_sizes=[None] * x.dim(),
+                        dynamic_offset=DimDynamic.DYNAMIC,
+                        constraint_offset=None,
                     ),
                 )
                 opt_f(x_fake)
@@ -374,7 +380,10 @@ class SubclassTests(torch._dynamo.test_case.TestCase):
                     fake_inp = fake_mode.from_tensor(
                         inp,
                         policy=FreshCreateSymbolicPolicy(
-                            [dim_dynamic for i in range(x.dim())]
+                            dynamic_dims=[dim_dynamic for i in range(x.dim())],
+                            constraint_dims=[None] * x.dim(),
+                            dynamic_offset=DimDynamic.DYNAMIC,
+                            constraint_offset=None,
                         ),
                     )
                     opt_f(fake_inp)
@@ -709,7 +718,10 @@ class GraphModule(torch.nn.Module):
                 fake_inp = fake_mode.from_tensor(
                     x,
                     policy=FreshCreateSymbolicPolicy(
-                        dynamic_sizes=[DimDynamic.DYNAMIC for i in range(x.dim())]
+                        dynamic_sizes=[DimDynamic.DYNAMIC for i in range(x.dim())],
+                        constraint_sizes=[None] * x.dim(),
+                        dynamic_offset=DimDynamic.DYNAMIC,
+                        constraint_offset=None,
                     ),
                 )
                 for i, size in enumerate(sizes):
