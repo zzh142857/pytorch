@@ -2119,9 +2119,14 @@ class ShapeEnv:
             TensorPropertySource(source, TensorProperty.STORAGE_OFFSET),
             dynamic_dim=DimDynamic.DYNAMIC,  # TODO
             constraint_dim=None,
+<<<<<<< HEAD
             # TODO: I don't think we want to specialize on 0/1 for storage offset?
             # But do_not_specialize_zero_one=False fails assertion for dynamic shape w/ example = 1
             # do_not_specialize_zero_one=True,
+=======
+            positive=False,
+            do_not_specialize_zero_one=True,
+>>>>>>> 22b433a6860 ([WIP] don't require alignment if tensor is large)
         ), hint=ex_storage_offset, source=TensorPropertySource(source, TensorProperty.STORAGE_OFFSET))
         return tuple(sym_sizes), tuple(sym_stride), sym_storage_offset
 
