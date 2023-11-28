@@ -322,6 +322,8 @@ class MetaConverter:
                         base_symbolic_context = StatelessSymbolicContext(
                             dynamic_sizes=[DimDynamic.STATIC] * t._base.dim(),
                             constraint_sizes=[None] * t._base.dim(),
+                            dynamic_offset=DimDynamic.DYNAMIC,
+                            constraint_offset=None,
                         )
                     else:
                         base_symbolic_context = None

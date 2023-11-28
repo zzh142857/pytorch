@@ -1235,6 +1235,51 @@ utils_device.CURRENT_DEVICE == None""".split(
             self, fn=fn1, nargs=1, expected_ops=3
         )
 
+    def test_storage_offset_guards(self):
+        guard_failures = []
+
+        def guard_fail_fn(failure):
+            nonlocal guard_failures
+            guard_failures.append(failure)
+
+        def fn(x, y):
+            return x + y
+
+        fn_opt = torch._dynamo.optimize(
+            "eager", nopython=True, guard_fail_fn=guard_fail_fn
+        )(fn)
+
+        x1, y1 = (torch.rand((4, 4)) for _ in range(2))
+        fn_opt(x1, y1)
+
+        x2, y2 = (torch.rand(20).as_strided((4, 4), (4, 1), 3) for _ in range(2))
+        fn_opt(x2, y2)
+
+        self.assertEqual(len(guard_failures), 1)
+        self.assertExpectedInline(
+            guard_failures[0].reason,
+            """tensor 'L['x']' storage offset mismatch. expected 0, actual 3""",
+        )
+
+    def test_dynamic_storage_offset(self):
+        def fn(x, y):
+            return torch.add(x, y)
+
+        def get_inputs(offset):
+            dim = 1024
+            return [
+                torch.rand(dim * (dim + 1)).as_strided((dim, dim), (dim, 1), offset)
+                for _ in range(2)
+            ]
+
+        cnt = torch._dynamo.testing.CompileCounter()
+        opt_fn = torch._dynamo.optimize(cnt, nopython=True, dynamic=True)(fn)
+
+        opt_fn(*get_inputs(3))
+        self.assertEqual(cnt.frame_count, 1)
+        opt_fn(*get_inputs(5))
+        self.assertEqual(cnt.frame_count, 1)
+
     def test_range_with_shape(self):
         def fn(a):
             for i in range(1, a.shape[0]):

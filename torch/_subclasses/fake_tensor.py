@@ -314,6 +314,7 @@ class FakeTensorConverter:
         source=None,
         symbolic_context=None,
         memoized_only=False,
+        dynamic_storage_offset=None,
     ):
         # see note [Tensor Fakification and Symbol Caching]
         if not symbolic_context and not source and shape_env:
@@ -392,6 +393,7 @@ class FakeTensorConverter:
         source=None,
         symbolic_context=None,
         memoized_only=False,
+        dynamic_storage_offset=None,
     ):
         return self.from_real_tensor(
             fake_mode,
@@ -401,6 +403,7 @@ class FakeTensorConverter:
             source=source,
             symbolic_context=symbolic_context,
             memoized_only=memoized_only,
+            dynamic_storage_offset=dynamic_storage_offset,
         )
 
 
@@ -1866,6 +1869,7 @@ class FakeTensorMode(TorchDispatchMode):
         # Setting this flag will force FakeTensorMode to return `None` if attempting to convert a tensor we have not
         # seen before.
         memoized_only=False,
+        dynamic_storage_offset=None,
     ):
         shape_env = self.shape_env
         if static_shapes is None:
@@ -1888,6 +1892,7 @@ class FakeTensorMode(TorchDispatchMode):
             source=source,
             symbolic_context=symbolic_context,
             memoized_only=memoized_only,
+            dynamic_storage_offset=dynamic_storage_offset,
         )
 
 

@@ -749,8 +749,10 @@ class StatelessSymbolicContext(SymbolicContext):
     This will cause fresh symbols to be allocated
     """
     dynamic_sizes: DimList[DimDynamic]
-    constraint_sizes: DimList[DimConstraint] = None
-    # TODO: add storage offset and stride symbolic_context
+    constraint_sizes: DimList[DimConstraint]
+    dynamic_offset: DimDynamic
+    constraint_offset: Optional[DimConstraint] = None
+    # TODO: add stride policy
 
     def __post_init__(self):
         if self.constraint_sizes is None:
@@ -2095,7 +2097,12 @@ class ShapeEnv:
                 dynamic_dims.append(r)
             dynamic_dims = [DimDynamic.DUCK] * dim
             # symbolic_context is None - set one
-            symbolic_context = StatelessSymbolicContext(dynamic_sizes=dynamic_dims, constraint_sizes=constraint_dims)
+            symbolic_context = StatelessSymbolicContext(
+                dynamic_sizes=dynamic_dims,
+                constraint_sizes=constraint_dims,
+                dynamic_offset=DimDynamic.DYNAMIC,
+                constraint_offset=None,
+            )
         # We got a StatelessSymbolicContext
         _assert_symbol_context(symbolic_context)
         constraint_dims = symbolic_context.constraint_sizes
@@ -2170,7 +2177,7 @@ class ShapeEnv:
             self.create_symbol(
                 ex_storage_offset,
                 TensorPropertySource(source, TensorProperty.STORAGE_OFFSET),
-                dynamic_dim=DimDynamic.DYNAMIC,
+                dynamic_dim=DimDynamic.DYNAMIC,  # TODO
                 constraint_dim=None,
             ),
             hint=ex_storage_offset,
