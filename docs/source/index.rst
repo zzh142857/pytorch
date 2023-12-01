@@ -93,6 +93,7 @@ Features described in this documentation are classified by release status:
    torch.package <package>
    profiler
    nn.init
+   nn.utils.attention
    onnx
    optim
    complex_numbers
