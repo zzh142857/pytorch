@@ -2921,6 +2921,16 @@ class ShapeEnv:
                 if len(bounds) > 1:
                     exprs.append(" <= ".join(bounds))
 
+        # 4. Add divisibility guards.
+        for mod_expr in self.divisible:
+            guard_expr = sympy.Eq(self.replace(mod_expr), sympy.Integer(0))
+            exprs.append(
+                ShapeGuardPrinter(symbol_to_source, source_ref, self.var_to_sources).doprint(guard_expr)
+            )
+            self._add_target_expr(guard_expr)
+            if any(is_dim(source) for s in mod_expr.free_symbols for source in symbol_to_source[s]):
+                self.dim_constraints.add(guard_expr)
+
         if constraint_violations:
             warn_msgs = []
             error_msgs = []
@@ -3235,6 +3245,14 @@ class ShapeEnv:
             # divisions simplified away
             if new_pows.issubset(pows) and new_rationals.issubset(rationals):
                 expr = new_expr
+        if expr.has(Mod):
+            mod_replacements = {}
+            for mod in expr.atoms(Mod):
+                # TODO: we should be able to simplify factors of the modulus too, e.g. knowing x % 4 == 0
+                # implies x % 2 == 0
+                if self.replace(mod) in self.divisible:
+                    mod_replacements[mod] = sympy.Integer(0)
+            expr = expr.xreplace(mod_replacements)
         return expr
 
     @lru_cache(256)
