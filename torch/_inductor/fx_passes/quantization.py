@@ -129,22 +129,26 @@ dequantize_qconv_pt2e_pattern = CallFunction(
     Arg(),  # algorithm
 )
 
-qlinear_pt2e_pattern = CallFunction(
-    torch.ops.onednn.qlinear_pointwise.default,
-    KeywordArg("x"),
-    KeywordArg("x_scale"),
-    KeywordArg("x_zp"),
-    KeywordArg("packed_weight"),
-    KeywordArg("w_scale"),
-    KeywordArg("w_zp"),
-    KeywordArg("b"),
-    KeywordArg("output_scale"),
-    KeywordArg("output_zero_point"),
-    KeywordArg("output_dtype"),
-    KeywordArg("postop_name"),
-    KeywordArg("postop_args"),
-    KeywordArg("postop_algorithm"),
-)
+
+def qlinear_pt2e_pattern(users=1):
+    return CallFunction(
+        torch.ops.onednn.qlinear_pointwise.default,
+        KeywordArg("x"),
+        KeywordArg("x_scale"),
+        KeywordArg("x_zp"),
+        KeywordArg("packed_weight"),
+        KeywordArg("w_scale"),
+        KeywordArg("w_zp"),
+        KeywordArg("b"),
+        KeywordArg("output_scale"),
+        KeywordArg("output_zero_point"),
+        KeywordArg("output_dtype"),
+        KeywordArg("postop_name"),
+        KeywordArg("postop_args"),
+        KeywordArg("postop_algorithm"),
+        _users=users,
+    )
+
 
 dequantize_accum_pattern = CallFunction(
     aten.mul.Tensor,
@@ -529,6 +533,11 @@ def _register_quantized_conv_binary_lowering(
 
 
 def _register_quantization_unary_fusion():
+    from .mkldnn_fusion import (
+        _gelu_fusion_1 as _gelu_fusion_erf,
+        _gelu_fusion_2 as _gelu_fusion_tanh,
+    )
+
     class UnaryAttr:
         def __init__(self, op_name: str, scalars_attr=None, algorithm_attr=None):
             self.op_name = op_name
@@ -595,11 +604,19 @@ def _register_quantization_unary_fusion():
         # Priority 1 to match: QLinear Unary pattern with int8 output
         linear_unary_replace_patterns = {
             UnaryAttr("none", [], ""): generate_pattern_with_output_quant(
-                qlinear_pt2e_pattern,
+                qlinear_pt2e_pattern(1),
                 dtype=original_pattern_output_dtype,
             ),
             UnaryAttr("relu", [], ""): generate_pattern_with_output_quant(
-                generate_pattern_with_unary(qlinear_pt2e_pattern, aten.relu.default),
+                generate_pattern_with_unary(qlinear_pt2e_pattern(1), aten.relu.default),
+                dtype=original_pattern_output_dtype,
+            ),
+            UnaryAttr("gelu", [], "none"): generate_pattern_with_output_quant(
+                _gelu_fusion_erf(qlinear_pt2e_pattern(2)),
+                dtype=original_pattern_output_dtype,
+            ),
+            UnaryAttr("gelu", [], "tanh"): generate_pattern_with_output_quant(
+                _gelu_fusion_tanh(qlinear_pt2e_pattern(4)),
                 dtype=original_pattern_output_dtype,
             ),
         }
@@ -617,8 +634,10 @@ def _register_quantization_unary_fusion():
         # Priority 2 to match: QLinear Unary pattern with FP32/BF16 output
         linear_unary_replace_float_out_patterns = {
             UnaryAttr("relu", [], ""): generate_pattern_with_unary(
-                qlinear_pt2e_pattern, aten.relu.default
+                qlinear_pt2e_pattern(1), aten.relu.default
             ),
+            UnaryAttr("gelu", [], "none"): _gelu_fusion_erf(qlinear_pt2e_pattern(2)),
+            UnaryAttr("gelu", [], "tanh"): _gelu_fusion_tanh(qlinear_pt2e_pattern(4)),
         }
 
         for unary_attr, patterns in linear_unary_replace_float_out_patterns.items():
