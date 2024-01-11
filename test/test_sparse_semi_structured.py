@@ -6,9 +6,10 @@ import unittest
 import torch
 from torch import nn
 
-from torch.sparse.semi_structured import (
-    _DTYPE_TO_SEMI_STRUCTURED_SPARSE_CONFIG,
+from torch.sparse import (
     SparseSemiStructuredTensor,
+    SparseSemiStructuredTensorCUTLASS,
+    SparseSemiStructuredTensorCUSPARSELT,
     to_sparse_semi_structured,
 )
 
@@ -35,7 +36,7 @@ from torch.utils._triton import has_triton
 
 CUSPARSELT_NUM_ALG_IDS = 4
 
-SEMI_STRUCTURED_SUPPORTED_DTYPES = _DTYPE_TO_SEMI_STRUCTURED_SPARSE_CONFIG.keys()
+SEMI_STRUCTURED_SUPPORTED_DTYPES = SparseSemiStructuredTensorCUTLASS._DTYPE_SHAPE_CONSTRAINTS.keys()
 SEMI_STRUCTURED_SUPPORTED_BACKENDS = []
 
 _IS_SM8X = False
@@ -314,7 +315,7 @@ class TestSparseSemiStructured(TestCase):
 
         with self.assertRaisesRegex(
             NotImplementedError,
-            r"arg0: SparseSemiStructuredTensor\(.*transposed=True",
+            r"arg0: SparseSemiStructuredTensor.*transposed=True",
         ):
             torch.mm(A_sparse.t(), B)
 
@@ -356,7 +357,7 @@ class TestSparseSemiStructured(TestCase):
 
         with self.assertRaisesRegex(
             NotImplementedError,
-            r"arg1: SparseSemiStructuredTensor\(.*transposed=False",
+            r"arg1: SparseSemiStructuredTensor.*transposed=False",
         ):
             sparse_result = torch.mm(A, B_sparse)
 
@@ -437,7 +438,10 @@ class TestSparseSemiStructured(TestCase):
     @parametrize("backend", SEMI_STRUCTURED_SUPPORTED_BACKENDS)
     def test_min_sparse_shape(self, dtype, device, backend):
         SparseSemiStructuredTensor._FORCE_CUTLASS = (backend == "cutlass")
-        config = _DTYPE_TO_SEMI_STRUCTURED_SPARSE_CONFIG[dtype]
+        if backend == "cutlass":
+            config = SparseSemiStructuredTensorCUTLASS._DTYPE_SHAPE_CONSTRAINTS[dtype]
+        elif backend == "cusparselt":
+            config = SparseSemiStructuredTensorCUSPARSELT._DTYPE_SHAPE_CONSTRAINTS[dtype]
         A = rand_sparse_semi_structured_mask(config.sparse_min_rows, config.sparse_min_cols, dtype=dtype, device=device)
         A_sparse = to_sparse_semi_structured(A)
         B = torch.rand((config.sparse_min_cols, config.dense_min_cols), device=device).to(dtype)
@@ -596,6 +600,16 @@ class TestCUSPARSELT(TestCase):
         else:
             SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
+    @parametrize("dense_input_shape", [(128, 128)])
+    def test_cslt_sparse_mm_int8_in_bf16_out(self, dense_input_shape, device):
+        A = rand_sparse_semi_structured_mask(128, 128, dtype=torch.int8)
+        A_compressed = torch._cslt_compress(A)
+
+        B = torch.rand(dense_input_shape, device=device).to(torch.int8)
+
+        dense_result = torch.mm(A.cpu().to(torch.int64), B.t().cpu().to(torch.int64)).to(device, dtype=torch.bfloat16)
+        sparse_result = torch._cslt_sparse_mm(A_compressed, B.t(), out_dtype=torch.bfloat16)
+        assert torch.allclose(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
     @parametrize("dense_input_shape", [(128, 128)])
     def test_cslt_sparse_mm_int8_in_fp16_out(self, dense_input_shape, device):
@@ -637,6 +651,20 @@ class TestCUSPARSELT(TestCase):
 
         assert torch.allclose(sparse_result, dense_result, rtol=1e-3, atol=1e-3)
 
+    def test_cslt_sparse_mm_alpha_int8_in_bf16_out(self, device):
+        A = torch.Tensor([0, 0, 10, 10]).tile((128, 64)).to(torch.int8).cuda()
+        B = torch.ones((128, 256), device=device).to(torch.int8).t()
+        alpha = torch.Tensor([2**(-i) for i in range(128)]).cuda()
+
+        A_compressed = torch._cslt_compress(A)
+        sparse_result = torch._cslt_sparse_mm(A_compressed, B, alpha=alpha, out_dtype=torch.bfloat16).cpu()
+
+        alpha_scaled = torch.stack([alpha] * 128).t()
+        dense_result = alpha_scaled.cpu() * torch.mm(A.to(torch.int32).cpu(), B.to(torch.int32).cpu())
+        dense_result = dense_result.to(torch.bfloat16)
+
+        assert torch.allclose(sparse_result, dense_result, rtol=1e-3, atol=1e-3)
+
     @parametrize("alg_id", range(CUSPARSELT_NUM_ALG_IDS))
     @dtypes(*SEMI_STRUCTURED_SUPPORTED_DTYPES)
     def test_cslt_sparse_mm_alg_id(self, device, dtype, alg_id):
@@ -667,7 +695,6 @@ class TestCUSPARSELT(TestCase):
         # when setting using the last one (4)
         # in cuSPARSELt v0.5.0 there are only 4 alg_ids total, so we should remove the +1 here when we update.
         assert alg_id in range(CUSPARSELT_NUM_ALG_IDS + 1)
-
 
 instantiate_device_type_tests(TestSparseSemiStructured, globals(), only_for="cuda")
 instantiate_device_type_tests(TestCUSPARSELT, globals(), only_for="cuda")

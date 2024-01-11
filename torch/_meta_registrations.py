@@ -453,10 +453,10 @@ def meta__cslt_sparse_mm(
     if bias is not None:
         assert m == bias.size(0)
 
-    if out_dtype is not None:
-        assert (
-            is_int8_input_type and out_dtype == torch.float16
-        ), "out_dtype is only supported for i8i8->fp16 matmul"
+    # if out_dtype is not None:
+    #     assert (
+    #         is_int8_input_type and out_dtype == torch.float16
+    #     ), "out_dtype is only supported for i8i8->fp16 matmul"
     output_shape = (n, m) if transpose_result else (m, n)
     result = dense_B.new_empty(output_shape, dtype=out_dtype)
     return result
