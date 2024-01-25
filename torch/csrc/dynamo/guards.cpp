@@ -9,6 +9,29 @@
 #include <torch/extension.h>
 #include <sstream>
 
+// For TupleIteratorGetItemAccessor, we need a fast way to retrieve the
+// underlying tuple and access the item. Before Python 3.12 version, the
+// datastructure is in tupleobject.c file -
+// https://github.com/python/cpython/blob/9afc6d102d16080535325f645849cd84eb04d57d/Objects/tupleobject.c#L1058-L1062
+// To handle this, we manually copy the struct here and manually cast it to this
+// new struct. From 3.12, the struct is included in the header file.
+#if IS_PYTHON_3_12_PLUS
+
+#define Py_BUILD_CORE
+// Bring _PyTupleIterObject from the header file
+#include <internal/pycore_tuple.h>
+#undef Py_BUILD_CORE
+
+#else
+
+// Manually create _PyTupleIterObject struct
+typedef struct {
+  PyObject_HEAD Py_ssize_t it_index;
+  PyTupleObject* it_seq; /* Set to NULL when iterator is exhausted */
+} _PyTupleIterObject;
+
+#endif // IS_PYTHON_3_12_PLUS
+
 namespace {
 
 struct LocalState {
@@ -856,6 +879,28 @@ class DICT_KEYS : public LeafGuard {
   PyObject* _keys;
 };
 
+class TUPLE_ITERATOR_LEN : public LeafGuard {
+ public:
+  TUPLE_ITERATOR_LEN(py::object value, py::object guard_str)
+      : LeafGuard(guard_str), _length(py::cast<Py_ssize_t>(value)) {}
+
+  bool check_nopybind(PyObject* value) override { // borrowed ref
+    _PyTupleIterObject* it = (_PyTupleIterObject*)value;
+    Py_ssize_t length = 0;
+    if (it->it_seq)
+      length = PyTuple_GET_SIZE(it->it_seq) - it->it_index;
+    return length == _length;
+  }
+
+  std::string repr_prefix() override {
+    return "TUPLE_ITERATOR_LEN";
+  }
+
+ private:
+  // Length of the guarded list
+  Py_ssize_t _length;
+};
+
 /**
  * Relational guards compare more than one value. We implement Relational guards
  * by capturing some state in the guard object. For example for tensor aliasing
@@ -1481,6 +1526,43 @@ class TypeGuardAccessor : public GuardAccessor {
 };
 
 /**
+ * Getitem tuple_iterator accessor.
+ */
+class TupleIteratorGetItemAccessor : public GuardAccessor {
+ public:
+  TupleIteratorGetItemAccessor(RootGuardManager* root, py::object index)
+      : GuardAccessor(root, index), _index(py::cast<Py_ssize_t>(index)) {}
+
+  // NB: Intentional duplication between check_nopybind and
+  // check_verbose_nopybind.
+  bool check_nopybind(PyObject* obj) override { // borrowed ref
+    _PyTupleIterObject* it = (_PyTupleIterObject*)obj;
+    PyObject* x =
+        PyTuple_GET_ITEM(it->it_seq, it->it_index + _index); // borrowed ref
+    DEBUG_NULL_CHECK(x);
+    bool result = _guard_manager->check_nopybind(x);
+    return result;
+  }
+
+  GuardDebugInfo check_verbose_nopybind(
+      PyObject* obj) override { // borrowed ref
+    _PyTupleIterObject* it = (_PyTupleIterObject*)obj;
+    PyObject* x =
+        PyTuple_GET_ITEM(it->it_seq, it->it_index + _index); // borrowed ref
+    DEBUG_NULL_CHECK(x);
+    GuardDebugInfo result = _guard_manager->check_verbose_nopybind(x);
+    return result;
+  }
+
+  std::string repr() const override {
+    return "TupleIteratorGetItemAccessor(" + std::to_string(_index) + ")";
+  }
+
+ private:
+  Py_ssize_t _index;
+};
+
+/**
  * Similar to PythonLambdaLeafGuard, this class is a way to allow developers
  * to supply accessor as a python function. This way, we can gradually move
  * accessors for different sources in C++.
@@ -1637,6 +1719,12 @@ PyObject* torch_c_dynamo_guards_init() {
       py_m, "DICT_KEYS")
       .def(py::init<py::object, py::str>())
       .def("__call__", &DICT_KEYS::check);
+  py::class_<
+      TUPLE_ITERATOR_LEN,
+      LeafGuard,
+      std::shared_ptr<TUPLE_ITERATOR_LEN>>(py_m, "TUPLE_ITERATOR_LEN")
+      .def(py::init<py::object, py::str>())
+      .def("__call__", &TUPLE_ITERATOR_LEN::check);
   py::class_<NoTensorAliasingGuard, std::shared_ptr<NoTensorAliasingGuard>>(
       py_m, "NoTensorAliasingGuard");
 
@@ -1668,6 +1756,11 @@ PyObject* torch_c_dynamo_guards_init() {
       TypeGuardAccessor,
       GuardAccessor,
       std::unique_ptr<TypeGuardAccessor>>(py_m, "TypeGuardAccessor");
+  py::class_<
+      TupleIteratorGetItemAccessor,
+      GuardAccessor,
+      std::unique_ptr<TupleIteratorGetItemAccessor>>(
+      py_m, "TupleIteratorGetItemAccessor");
 
   // Guard Manager - No constructor in python, python should use
   // RootGuardManager.
@@ -1734,6 +1827,14 @@ PyObject* torch_c_dynamo_guards_init() {
              py::object guard_str) -> void {
             self.add_leaf_guard(std::make_shared<DICT_KEYS>(value, guard_str));
           })
+      .def(
+          "add_tuple_iterator_length_guard",
+          [](GuardManager& self,
+             py::object value,
+             py::object guard_str) -> void {
+            self.add_leaf_guard(
+                std::make_shared<TUPLE_ITERATOR_LEN>(value, guard_str));
+          })
       // return by reference because GuardManager has the ownership of accessors
       // and guard managers
       .def(
@@ -1762,6 +1863,10 @@ PyObject* torch_c_dynamo_guards_init() {
             py::str unique_key("__type_accessor__");
             return self.get_child_manager<TypeGuardAccessor>(unique_key);
           },
+          py::return_value_policy::reference)
+      .def(
+          "tuple_iterator_getitem_manager",
+          &GuardManager::get_child_manager<TupleIteratorGetItemAccessor>,
           py::return_value_policy::reference)
       .def(
           "lambda_manager",
