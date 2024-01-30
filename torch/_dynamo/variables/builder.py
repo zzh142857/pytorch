@@ -411,7 +411,9 @@ class VariableBuilder:
             return ConstDictVariable(result, type(value))
         elif value is sys.modules:
             return PythonSysModulesVariable(source=self.source)
-        elif istype(value, (dict, collections.defaultdict, collections.OrderedDict)):
+        elif isinstance(value, dict):
+            # We handle DefaultDicts, OreredDicts and subclasses of these
+
             if not value and self.get_source().is_nn_module():
                 # It is faster to guard on 'false' property than to guard
                 # on actual dict keys, but we can't do this fast guard in general because
@@ -448,7 +450,7 @@ class VariableBuilder:
                 build_key_value(i, k, v) for i, (k, v) in enumerate(value.items())
             )
 
-            if istype(value, collections.defaultdict):
+            if isinstance(value, collections.defaultdict):
                 result = DefaultDictVariable(
                     result,
                     type(value),
