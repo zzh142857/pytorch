@@ -1166,6 +1166,7 @@ class AOTInductorTestsTemplate:
             dynamic_shapes = {"x": {0: dim0_x}, "y": {0: dim0_y}}
         self.check_model(Model(), (x, y), dynamic_shapes=dynamic_shapes)
 
+    @skipIfRocm
     def test_triton_kernel_dynamic_shape_with_div(self):
         if self.device != "cuda":
             raise unittest.SkipTest("requires CUDA")
@@ -1192,6 +1193,7 @@ class AOTInductorTestsTemplate:
         dynamic_shapes = {"x": {0: dim0_x}}
         self.check_model(Model(), (x,), dynamic_shapes=dynamic_shapes)
 
+    @skipIfRocm
     def test_triton_kernel_reinterpret_view(self):
         if self.device != "cuda":
             raise unittest.SkipTest("requires CUDA")
@@ -1213,6 +1215,7 @@ class AOTInductorTestsTemplate:
         example_inputs = (torch.randn(4, device=self.device),)
         self.check_model(Model(), example_inputs)
 
+    @skipIfRocm
     def test_triton_kernel_with_none_input(self):
         if self.device != "cuda":
             raise unittest.SkipTest("requires CUDA")
@@ -1548,12 +1551,16 @@ class AOTInductorTestsTemplate:
         model.weight += 1
         self.check_model(model, example_inputs)
 
+    @skipIfRocm
     def test_triton_kernel_extern_kernel_arg(self):
         if self.device != "cuda":
             raise unittest.SkipTest("requires CUDA")
 
         class Model(torch.nn.Module):
             def forward(self, x, y):
+                # AOT export does not allow for input mutation
+                x = x.clone()
+                y = y.clone()
                 out = torch.zeros_like(x)
                 # torch.mm is ExternKernelOut
                 add_kernel[(4,)](x, torch.mm(x, y), out, 4, 16)
@@ -1566,12 +1573,16 @@ class AOTInductorTestsTemplate:
 
         self.check_model(Model(), example_inputs)
 
+    @skipIfRocm
     def test_triton_kernel_multi_output_arg(self):
         if self.device != "cuda":
             raise unittest.SkipTest("requires CUDA")
 
         class Model(torch.nn.Module):
             def forward(self, x, y):
+                # AOT export does not allow for input mutation
+                x = x.clone()
+                y = y.clone()
                 out = torch.zeros_like(x)
                 # torch.sort creates fallback kernel and hence MultiOutput
                 add_kernel[(4,)](x, torch.sort(y).values, out, 4, 16)
@@ -1584,6 +1595,7 @@ class AOTInductorTestsTemplate:
 
         self.check_model(Model(), example_inputs)
 
+    @skipIfRocm
     @config.patch({"aot_inductor.abi_compatible": True})
     def test_triton_kernel_reinterpret_view_mem_leak(self):
         # Check for memory leak when using user-defined Triton Kernel + AOTI.
