@@ -1848,10 +1848,8 @@ class FunctionTests(torch._dynamo.test_case.TestCase):
             fn(arr, np.s_[..., 1], np.array([3, 3])), np.array([[1, 3], [2, 3]])
         )
 
-
 def udf_mul(x, y):
     return x * y
-
 
 class SmallNN(torch.nn.Module):
     def forward(self, x, y):
