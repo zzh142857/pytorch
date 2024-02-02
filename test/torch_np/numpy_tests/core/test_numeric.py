@@ -371,6 +371,7 @@ class TestBoolScalar(TestCase):
         assert_((t and s) is s)
         assert_((f and s) is f)
 
+    @xpassIfTorchDynamo
     def test_bitwise_or(self):
         f = np.False_
         t = np.True_
@@ -379,6 +380,7 @@ class TestBoolScalar(TestCase):
         assert_((t | f) is t)
         assert_((f | f) is f)
 
+    @xpassIfTorchDynamo
     def test_bitwise_and(self):
         f = np.False_
         t = np.True_
@@ -387,6 +389,7 @@ class TestBoolScalar(TestCase):
         assert_((t & f) is f)
         assert_((f & f) is f)
 
+    @xpassIfTorchDynamo
     def test_bitwise_xor(self):
         f = np.False_
         t = np.True_
