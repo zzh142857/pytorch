@@ -37,7 +37,6 @@ from .runtime_wrappers import (
 )
 from .schemas import (
     AOTConfig,
-    MutationType,
     OutputType,
     SubclassMeta,
     TensorAlias,
@@ -171,6 +170,9 @@ def aot_dispatch_autograd(
             if maybe_subclass_meta is None
             else maybe_subclass_meta.fw_metadata
         )
+        # Note: inner_meta.num_mutated_inp_runtime_indices should equal
+        #      fw_metadata.num_mutated_inp_runtime_indices.
+        # We don't assert because downstream error messages are more useful.
         with track_graph_compiling(aot_config, "joint"):
             # See Note: [Partitioner handling for Subclasses, Part 1]
             num_inner_fwd_outputs = (
@@ -516,8 +518,8 @@ def aot_dispatch_autograd(
             ]
             raw_returns_meta = [
                 x
-                for x in CompiledFunction.metadata.input_info
-                if x.mutation_type == MutationType.MUTATED_OUT_GRAPH
+                for (i, x) in enumerate(CompiledFunction.metadata.input_info)
+                if i in CompiledFunction.metadata.mutated_inp_runtime_indices
             ] + CompiledFunction.metadata.output_info
 
             fw_outs_not_requiring_grad = [

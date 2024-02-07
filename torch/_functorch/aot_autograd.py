@@ -544,6 +544,13 @@ def create_aot_dispatcher_function(
                             is_train=needs_autograd,
                         )
 
+        # One property of fw_metadata is that, depending on whether requires_subclass_dispatch
+        # is set, you'll get a different set of mutated_inp_runtime_indices; and that will
+        # alter the number of outputs from the forward pass. So, we need this value to be
+        # accurate at this point, otherwise we might end up with a mismatch in downstream
+        # parts of aot_autograd.
+        if req_subclass_dispatch and needs_autograd:
+            fw_metadata.set_requires_subclass_dispatch(True)
 
         if fw_metadata.num_intermediate_bases > 0:
             assert not req_subclass_dispatch, f"""\
