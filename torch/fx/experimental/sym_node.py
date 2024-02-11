@@ -77,6 +77,10 @@ class SymNode:
     ):
         self._expr = expr
         self.shape_env = shape_env
+        # Only populated when is_nested_int() is true
+        self._nested_int_vec = None
+        self._nested_int_sum_vec = None
+        # Symbolic nested int have pytype int.
         self.pytype = pytype
         # What's the difference between hint and constant?
         #
@@ -170,6 +174,22 @@ class SymNode:
 
     def is_bool(self):
         return self.pytype is bool
+
+    def is_nested_int(self):
+        # Unbacked SymInts cannot be nested int today
+        return (
+            self._hint is not None
+            and isinstance(self._hint, SymInt)
+            and self._hint.node.is_nested_int()
+        )
+
+    def nested_int_vec(self):
+        assert self._nested_int_vec is not None
+        return self._nested_int_vec
+
+    def nested_int_sum_vec(self):
+        assert self._nested_int_sum_vec is not None
+        return self._nested_int_sum_vec
 
     def wrap_int(self, num):
         assert type(num) is int

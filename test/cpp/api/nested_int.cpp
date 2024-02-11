@@ -8,12 +8,17 @@
 #include <test/cpp/api/support.h>
 
 TEST(NestedIntTest, Comparisons) {
-  auto a = c10::SymInt(
-      c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(1, 1)));
-  auto b = c10::SymInt(
-      c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(1, 1)));
-  auto c = c10::SymInt(
-      c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(2, 1)));
+  auto x = torch::randn({2, 2});
+
+  auto a =
+      c10::SymInt(c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(
+          1, 1, x, 1, c10::NestedTensorVariant::PYTHON)));
+  auto b =
+      c10::SymInt(c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(
+          1, 1, x, 1, c10::NestedTensorVariant::PYTHON)));
+  auto c =
+      c10::SymInt(c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(
+          2, 1, x, 1, c10::NestedTensorVariant::PYTHON)));
   auto d = c10::SymInt(3);
 
   ASSERT_TRUE(a == a);
@@ -86,10 +91,14 @@ TEST(NestedIntTest, Comparisons) {
 }
 
 TEST(NestedIntTest, WithFactor) {
-  auto a = c10::SymInt(
-      c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(1, 5)));
-  auto b = c10::SymInt(
-      c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(1, 10)));
+  auto x = torch::randn({2, 2});
+
+  auto a =
+      c10::SymInt(c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(
+          1, 5, x, 1, c10::NestedTensorVariant::PYTHON)));
+  auto b =
+      c10::SymInt(c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(
+          1, 10, x, 1, c10::NestedTensorVariant::PYTHON)));
   // eq
   ASSERT_FALSE(a == b);
   ASSERT_FALSE(a >= b);
@@ -102,4 +111,22 @@ TEST(NestedIntTest, WithFactor) {
   ASSERT_TRUE(a * 2 == b);
   ASSERT_TRUE(a * 3 >= b);
   ASSERT_TRUE(a * 2 == 2 * a);
+}
+
+TEST(NestedIntTest, CppNestedIntErrorsOnComparison) {
+  auto x = torch::randn({2, 2});
+
+  auto c =
+      c10::SymInt(c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(
+          -1, -1, x, -1, c10::NestedTensorVariant::CPP)));
+  auto p =
+      c10::SymInt(c10::SymNode(c10::make_intrusive<c10::NestedIntSymNodeImpl>(
+          -1, -1, x, -1, c10::NestedTensorVariant::PYTHON)));
+
+  // NOLINTNEXTLINE(hicpp-avoid-goto,cppcoreguidelines-avoid-goto)
+  EXPECT_THROW((void)(c == p), c10::Error);
+  // NOLINTNEXTLINE(hicpp-avoid-goto,cppcoreguidelines-avoid-goto)
+  EXPECT_THROW((void)(c == c), c10::Error);
+  // NOLINTNEXTLINE(hicpp-avoid-goto,cppcoreguidelines-avoid-goto)
+  EXPECT_THROW((void)(p == c), c10::Error);
 }

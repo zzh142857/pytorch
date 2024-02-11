@@ -1,8 +1,10 @@
 #pragma once
 
+#include <c10/core/DispatchKeySet.h>
 #include <c10/core/SafePyObject.h>
 #include <c10/core/SymNodeImpl.h>
 
+#include <ATen/core/NestedIntSymNodeImpl.h>
 #include <torch/csrc/PyInterpreter.h>
 #include <torch/csrc/autograd/python_variable.h>
 #include <torch/csrc/utils/pybind.h>
@@ -95,6 +97,24 @@ class PythonSymNodeImpl : public c10::SymNodeImpl {
     return getPyObj().attr("is_bool")().is(py::handle(Py_True));
   }
 
+  bool is_nested_int() const override {
+    py::gil_scoped_acquire acquire;
+    return getPyObj().attr("is_nested_int")().is(py::handle(Py_True));
+  }
+
+  c10::TensorImpl* nested_int_vec() const override {
+    py::gil_scoped_acquire acquire;
+    return getPyObj()
+        .attr("nested_int_vec")()
+        .cast<at::Tensor>()
+        .unsafeGetTensorImpl();
+  }
+
+  int64_t nested_int_sum_vec() const override {
+    py::gil_scoped_acquire acquire;
+    return getPyObj().attr("nested_int_sum_vec")().cast<int64_t>();
+  }
+
   bool has_hint() override {
     py::gil_scoped_acquire acquire;
     return getPyObj().attr("has_hint")().is(py::handle(Py_True));
@@ -158,7 +178,9 @@ class PythonSymNodeImpl : public c10::SymNodeImpl {
     return c10::make_intrusive<PythonSymNodeImpl>(r);
   }
 
-  c10::SymNode dispatch_common_(const char* fname, const c10::SymNode& other) {
+  c10::SymNode dispatch_common_(
+      const char* fname,
+      const c10::SymNode& other) {
     auto pother = dynamic_cast<PythonSymNodeImpl*>(other.get());
     TORCH_CHECK(pother);
     py::gil_scoped_acquire acquire;
@@ -268,8 +290,12 @@ class PythonSymNodeImpl : public c10::SymNodeImpl {
     return dispatch_common_(__func__);
   }
 
-  py::handle getPyObj() {
-    return py::handle(pyobj_.get()->ptr(getPyInterpreter()));
+  c10::DispatchKeySet key_set() const override {
+    return is_nested_int() ? c10::py_nested_int_ks : c10::DispatchKeySet();
+  }
+
+  py::handle getPyObj() const {
+    return py::handle(pyobj_->ptr(getPyInterpreter()));
   }
   std::shared_ptr<c10::SafePyObject> pyobj_ = nullptr;
 };
