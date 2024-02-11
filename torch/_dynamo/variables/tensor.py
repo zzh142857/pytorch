@@ -21,6 +21,7 @@ import torch._numpy as tnp
 
 import torch.fx
 import torch.random
+
 from torch._dynamo import compiled_autograd
 
 from torch.fx.experimental.symbolic_shapes import (
@@ -30,7 +31,6 @@ from torch.fx.experimental.symbolic_shapes import (
     is_symbolic,
     SymTypes,
 )
-
 from .. import config, variables
 from .._trace_wrapped_higher_order_op import trace_wrapped
 
@@ -133,6 +133,11 @@ class TensorVariable(VariableTracker):
 
     def python_type(self):
         return self.class_type
+
+    def call_hasattr(self, tx, name: str) -> "VariableTracker":
+        val = self.as_proxy().node.meta["example_value"]
+        result = hasattr(val, name)
+        return variables.ConstantVariable(result)
 
     @staticmethod
     def specialize(value: torch.Tensor):
