@@ -246,11 +246,11 @@ class TestDeviceMeshGetItem(DTensorTestBase):
             child_mesh = mesh["DP"]
 
     @with_comms
-    def test_raises_invalid_mesh_dim_name(self):
+    def test_raises_invalid_mesh_dim_names(self):
+        error_msg = "Invalid mesh_dim_name"
+
         child_mesh_dim_name = "PP"
-        with self.assertRaisesRegex(
-            KeyError, f"Mesh dimension '{child_mesh_dim_name}' does not exist."
-        ):
+        with self.assertRaisesRegex(KeyError, error_msg):
             mesh_dim_names = ("DP", "TP")
             mesh = init_device_mesh(
                 self.device_type, (2, 4), mesh_dim_names=mesh_dim_names
@@ -258,7 +258,7 @@ class TestDeviceMeshGetItem(DTensorTestBase):
             child_mesh = mesh[child_mesh_dim_name]
 
     @with_comms
-    def test_get_item(self):
+    def test_get_item_2d(self):
         mesh_shape = (2, 4)
         mesh_dim_names = ("DP", "TP")
         mesh_2d = init_device_mesh(
