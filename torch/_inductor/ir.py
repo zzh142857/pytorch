@@ -58,6 +58,7 @@ from .dependencies import (
     extract_read_writes,
     var_builder,
 )
+from .ops_handler import OpCounterCSE
 from .utils import (
     argsort,
     cache_on_self,
@@ -335,31 +336,6 @@ class IRNode:
     get_unbacked_symbol_uses: Callable[[], Set[sympy.Symbol]]
 
 
-class _OpCounterCSE:
-    """Shim to count how many ops are used"""
-
-    def __init__(self, inner):
-        super().__init__()
-        self.parent_handler = inner
-        self.op_count = 0
-        self.var_names = {}
-
-    def __getattr__(self, name):
-        def inner(*args, **kwargs):
-            val = getattr(self.parent_handler, name)(*args, **kwargs)
-            if name == "indirect_indexing":
-                return val
-            if val not in self.var_names:
-                varname = f"tmp{self.op_count}"
-                self.op_count += 1
-                self.var_names[val] = varname
-                return varname
-            else:
-                return self.var_names[val]
-
-        return inner
-
-
 @dataclasses.dataclass
 class Loops(IRNode):
     device: torch.device
@@ -430,7 +406,7 @@ class Loops(IRNode):
     def inner_fn_opcount(self):
         from .ir import FlexibleLayout
 
-        opcounter = _OpCounterCSE(V.MockHandler())
+        opcounter = OpCounterCSE(V.MockHandler())
 
         with V.set_ops_handler(opcounter), patch.object(
             FlexibleLayout, "allow_indexing", True
@@ -1672,10 +1648,6 @@ class Scan(Loops):
 
         if device.type != "cuda":
             # TODO: CPU support
-            return None
-
-        if torch.version.hip is not None:
-            # TODO: ROCm support
             return None
 
         sizevars = V.graph.sizevars
@@ -3468,14 +3440,20 @@ class InputsKernel(Buffer):
             op_counts=collections.Counter(),
         )
 
-    @staticmethod
-    def unwrap_storage_for_input(x):
+    @classmethod
+    def unwrap_storage_for_input(cls, x):
         if isinstance(x, TensorBox):
             x = x.data
         if isinstance(x, StorageBox):
             x = x.data
         if isinstance(x, BaseView) and not isinstance(x, ReinterpretView):
             x = ExternKernel.realize_input(x)
+        if isinstance(x, TensorBox):
+            # when converting to ReinterpretView fails in the
+            # realize_input call above, the result will be wrapped
+            # into TensorBox / StorageBox pair as a result of the
+            # cls.copy_input call; so we should unwrap recursively
+            return cls.unwrap_storage_for_input(x)
         assert isinstance(x, (Buffer, ReinterpretView)), x
         return x
 
