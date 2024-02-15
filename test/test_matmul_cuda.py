@@ -161,7 +161,6 @@ class TestMatmulCuda(TestCase):
          (1, 10000, 10000, 10000)],
         name_fn=lambda batch_size, N, M, P: f"{batch_size}_{N}_{M}_{P}",
     )
-    @skipIfRocm
     def test_cublas_baddbmm_large_input(self, device, batch_size, N, M, P, dtype):
         cpu_dtype = dtype
         if dtype == torch.float16 or dtype == torch.bfloat16:
