@@ -42,6 +42,7 @@ from ..pattern_matcher import (
 )
 from ..utils import decode_device, is_pointwise_use
 from ..virtualized import V
+from .comm_fusion import comm_fusion_passes
 from .group_batch_fusion import group_batch_fusion_passes
 from .reinplace import reinplace_inplaceable_ops
 
@@ -92,6 +93,8 @@ def post_grad_passes(gm: torch.fx.GraphModule, is_inference: bool):
                 gm.graph,
                 "Apply split cat pattern matcher PatternMatcherPass in post grad.",
             )
+        if config.enable_comm_fusion_pass:
+            comm_fusion_passes(gm.graph)
         if is_inference:
             inference_patterns.apply(gm.graph)  # type: ignore[arg-type]
 

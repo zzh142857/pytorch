@@ -168,6 +168,11 @@ reorder_for_compute_comm_overlap_passes = [
     "raise_comms",
 ]
 
+# enable collective communication function fusion pass (Experimental)
+# e.g., fuse allreduce + split into a single reducescatter)
+# (if pattern_matcher is False, the enable_comm_fusion_pass flag will be ignored)
+enable_comm_fusion_pass = False
+
 # runtime estimation function for ops
 # for built-in estimation function, pass in "default"; for user-defined estimation function, pass in the function handle
 estimate_op_runtime = "default"
