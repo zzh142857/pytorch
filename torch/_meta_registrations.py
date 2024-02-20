@@ -3798,7 +3798,7 @@ def meta_masked_scatter_backward(self, mask, sizes):
 
 
 @register_meta(aten._masked_scale.default)
-def _masked_scale(self, mask, scale):
+def meta__masked_scale(self, mask, scale):
     masked_scale = self.new_empty(self.size())
     return masked_scale
 
