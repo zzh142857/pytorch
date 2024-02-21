@@ -26,7 +26,6 @@
 #include <ATen/cpu/vec/intrinsics.h>
 #include <ATen/native/Math.h>
 #include <ATen/NumericUtils.h>
-#include <c10/util/C++17.h>
 #include <c10/util/Half.h>
 #include <c10/util/BFloat16.h>
 #include <c10/util/BFloat16-math.h>
@@ -36,12 +35,6 @@
 #include <c10/macros/Macros.h>
 #include <c10/util/irange.h>
 #include <c10/util/Load.h>
-
-#if defined(__GNUC__)
-#define __FORCE_INLINE __attribute__((always_inline)) inline
-#elif defined(_MSC_VER)
-#define __FORCE_INLINE __forceinline
-#endif
 
 // These macros helped us unify vec_base.h
 #ifdef CPU_CAPABILITY_AVX512
