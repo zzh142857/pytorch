@@ -9,7 +9,13 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from torch.distributed._tensor import DTensor, init_device_mesh, Shard
+from torch.distributed._tensor import (
+    DeviceMesh,
+    DTensor,
+    init_device_mesh,
+    Replicate,
+    Shard,
+)
 from torch.distributed._tensor.debug.visualize_sharding import visualize_sharding
 
 
@@ -122,10 +128,77 @@ def run_torchrec_row_wise_sharding_example(rank, world_size):
     assert torch.equal(dtensor.full_tensor(), src_dtensor.full_tensor())
 
 
+def run_torchrec_table_wise_sharding_example(rank, world_size):
+    # table-wise example:
+    #   each rank in the global ProcessGroup holds one different table.
+    #   In our example, the table's num_embedding is 8, and the embedding dim is 16
+    #   The global ProcessGroup has 4 ranks, so each rank will have one 8 by 16 complete
+    #   table as its local shard.
+
+    # store each rank of the global ProcessGroup in a tensor
+    global_ranks = torch.arange(world_size)
+    # device mesh is a representation of the worker ranks
+    # create a 1-D device mesh that includes every rank
+    _device_type = device_type()
+    device = torch.device(_device_type)
+    device_mesh = init_device_mesh(device_type=_device_type, mesh_shape=(world_size,))
+
+    # manually create the embedding table's local shards
+    num_embeddings = 8
+    embedding_dim = 16
+    emb_table_shape = torch.Size([num_embeddings, embedding_dim])
+    local_shard_shape = emb_table_shape  # each rank holds a complete table
+    table_to_local_shard = {}  # map {table_id: local shard of table_id}
+    # create 4 embedding tables and place them on different ranks
+    # each rank will hold one complete table, and the dict will store
+    # the corresponding local shard.
+    for i in range(world_size):
+        local_shard = torch.randn(*local_shard_shape, device=device)
+        # embedding table i is placed on rank i
+        table_to_local_shard[i] = (
+            local_shard if rank == i else torch.empty(0, device=device)
+        )
+
+    ###########################################################################
+    # example 1: transform local_shards into DTensor
+    table_to_dtensor = {}  # same purpose as _model_parallel_name_to_sharded_tensor
+    table_wise_sharding_placements = [Replicate()]  # table-wise sharding
+    for table_id, local_shard in table_to_local_shard.items():
+        # create a submesh that only contains the rank of the current table
+        # note that we cannot use ``init_device_mesh'' to create a submesh
+        # so we choose to use the `DeviceMesh` api to directly create a DeviceMesh
+        device_mesh = DeviceMesh(
+            device_type=_device_type,
+            mesh=torch.tensor(
+                [table_id], dtype=torch.int64
+            ),  # table i is only placed on rank i
+        )
+        # create a DTensor from the local shard for the current table
+        dtensor = DTensor.from_local(
+            local_shard, device_mesh, table_wise_sharding_placements, run_check=False
+        )
+        table_to_dtensor[table_id] = dtensor
+
+    # print each table's sharding
+    for table_id, dtensor in table_to_dtensor.items():
+        if rank == 0:  # the print result is identical on all ranks
+            print(
+                f"DTensor's sharding be-like in table-wise sharding for Table {table_id}:"
+            )
+            # visualize_sharding(dtensor)  # TODO: fix visualization
+
+    ###########################################################################
+    # example 2: transform DTensor into torch.Tensor
+    for table_id, local_shard in table_to_local_shard.items():
+        dtensor_local_shard = table_to_dtensor[table_id].to_local()
+        assert torch.equal(dtensor_local_shard, local_shard)
+
+
 def run_example(rank, world_size, example_name):
     # the dict that stores example code
     name_to_example_code = {
         "row-wise": run_torchrec_row_wise_sharding_example,
+        "table-wise": run_torchrec_table_wise_sharding_example,
     }
     if example_name not in name_to_example_code:
         print(f"example for {example_name} does not exist!")
@@ -165,6 +238,7 @@ if __name__ == "__main__":
     example_prompt = (
         "choose one sharding example from below:\n"
         "\t1. row-wise;\n"
+        "\t2. table-wise\n"
         "e.g. you want to try the row-wise sharding example, please input 'row-wise'\n"
     )
     parser.add_argument("-e", "--example", help=example_prompt, required=True)
