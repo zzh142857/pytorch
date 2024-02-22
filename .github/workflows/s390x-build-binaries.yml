@@ -1,0 +1,50 @@
+name: s390x-build-binaries
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - nightly
+    tags:
+      # Final Release tags look like: v1.11.0
+      - v[0-9]+.[0-9]+.[0-9]+
+      # Release candidate tags look like: v1.11.0-rc1
+      - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
+      - ciflow/nightly/*
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name == 'workflow_dispatch' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: [linux.s390x]
+    timeout-minutes: 720
+    strategy:
+      fail-fast: false
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - name: Prepare environment
+      run: |
+        virtualenv -p python3 --system-site-packages venv
+        source venv/bin/activate
+        pip install --upgrade setuptools
+        pip install --upgrade pytest
+        pip install --upgrade expecttest
+        pip install --upgrade typing_extensions
+        pip install --upgrade sympy
+        pip install --upgrade hypothesis
+        pip install --upgrade parameterized
+        pip install --upgrade psutil
+        pip install --upgrade protobuf
+        pip install --upgrade optree
+        pip install --upgrade future
+    - name: Build project
+      run: |
+        source venv/bin/activate
+        python setup.py bdist_wheel
+    - name: Upload binaries
+      run: |
+        echo TODO
