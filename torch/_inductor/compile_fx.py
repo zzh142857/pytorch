@@ -317,6 +317,7 @@ def fake_tensor_prop(
     The created fake mode will be returned.
     """
     fake_mode = detect_fake_mode(example_inputs)
+    fake_mode.allow_non_fake_inputs = True
     if not fake_mode:
         fake_mode = torch._subclasses.FakeTensorMode(allow_non_fake_inputs=True)
         FakeTensorProp(gm, mode=fake_mode).propagate(*example_inputs)
