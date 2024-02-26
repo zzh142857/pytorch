@@ -65,21 +65,16 @@ def get_pr_body() -> str:
     """Uses GitHub API to get the body of the PR, based on the PR_NUMBER or
     GITHUB_REF environment variables."""
     body = ""
-    pr_number = os.environ.get("PR_NUMBER")
-    if pr_number is not None:
-        res = requests.get(
+    pr_number = os.environ.get("PR_NUMBER", "")
+    if pr_number != "":
+        body += requests.get(
             f"https://api.github.com/repos/pytorch/pytorch/pulls/{pr_number}"
-        ).json()
-        print(res)
-        body += res["body"]
+        ).json()["body"]
     else:
-        re_match = re.match(r"refs/tags/.*/(\d+)", os.environ.get("GITHUB_REF", ""))
-        print(re_match)
+        re_match = re.match(r"^refs/tags/.*/(\d+)$", os.environ.get("GITHUB_REF", ""))
         if re_match is not None:
             print(re_match.group(1))
-            res = requests.get(
+            body += requests.get(
                 f"https://api.github.com/repos/pytorch/pytorch/pulls/{re_match.group(1)}"
-            ).json()
-            print(res)
-            body += res["body"]
+            ).json()["body"]
     return body
