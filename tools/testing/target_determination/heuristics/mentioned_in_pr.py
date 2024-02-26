@@ -18,8 +18,16 @@ class MentionedInPR(HeuristicInterface):
         super().__init__(**kwargs)
 
     def get_prediction_confidence(self, tests: List[str]) -> TestPrioritizations:
-        commit_messages = get_git_commit_info()
-        pr_body = get_pr_body()
+        try:
+            commit_messages = get_git_commit_info()
+        except Exception as e:
+            print(f"Can't get commit info due to {e}")
+            commit_messages = ""
+        try:
+            pr_body = get_pr_body()
+        except Exception as e:
+            print(f"Can't get PR body due to {e}")
+            pr_body = ""
         mentioned = []
         for test in tests:
             if test in commit_messages or test in pr_body:
