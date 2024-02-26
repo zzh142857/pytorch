@@ -1,8 +1,9 @@
-from typing import Any, List
 import os
-import subprocess
-import requests
 import re
+import subprocess
+from typing import Any, List
+
+import requests
 from tools.testing.target_determination.heuristics.interface import (
     HeuristicInterface,
     TestPrioritizations,
@@ -43,8 +44,12 @@ def get_git_commit_info() -> str:
         # We are on the default branch, so check for changes since the last commit
         base_commit = "HEAD^"
 
-    return subprocess.check_output(
-        ["git", "log", f"{base_commit}..HEAD"],
+    return (
+        subprocess.check_output(
+            ["git", "log", f"{base_commit}..HEAD"],
+        )
+        .decode()
+        .strip()
     )
 
 
@@ -58,7 +63,7 @@ def get_pr_body() -> str:
             f"https://api.github.com/repos/pytorch/pytorch/pulls/{pr_number}"
         ).json()["body"]
     else:
-        re_match = re.match("refs/tags/.*/(\d+)", os.environ.get("GITHUB_REF"))
+        re_match = re.match(r"refs/tags/.*/(\d+)", os.environ.get("GITHUB_REF", ""))
         if re_match is not None:
             body += requests.get(
                 f"https://api.github.com/repos/pytorch/pytorch/pulls/{re_match.group(1)}"
