@@ -74,7 +74,9 @@ def get_pr_body() -> str:
         body += res["body"]
     else:
         re_match = re.match(r"refs/tags/.*/(\d+)", os.environ.get("GITHUB_REF", ""))
+        print(re_match)
         if re_match is not None:
+            print(re_match.group(1))
             res = requests.get(
                 f"https://api.github.com/repos/pytorch/pytorch/pulls/{re_match.group(1)}"
             ).json()
