@@ -79,4 +79,5 @@ def get_pr_body() -> str:
             body += requests.get(
                 f"https://api.github.com/repos/pytorch/pytorch/pulls/{re_match.group(1)}"
             ).json()["body"]
+    print(body)
     return body
