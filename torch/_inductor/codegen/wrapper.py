@@ -23,7 +23,7 @@ from torch.utils._sympy.singleton_int import SingletonInt
 
 from .. import codecache, config, ir
 from ..codecache import CudaKernelParamCache
-from ..ir import ReinterpretView
+from ..ir import FixedLayout, ReinterpretView, TensorBox
 from ..triton_heuristics import grid as default_grid
 from ..utils import (
     cache_on_self,
@@ -1439,7 +1439,7 @@ class CppWrapperCodeGen(WrapperCodeGen):
             self.header.splice(
                 """
                 import torch
-                from torch._inductor.codecache import CppWrapperCodeCache
+                from torch._inductor.codecache import CppWrapperCodeCache, CppWrapperCodeCacheForEager
 
                 cpp_wrapper_src = (
                 '''
@@ -1625,6 +1625,8 @@ class CppWrapperCodeGen(WrapperCodeGen):
                                 auto inputs = alloc_tensors_by_stealing_from_handles(input_handles, num_inputs());
                             """
                         )
+                elif config.aot_inductor.eager_mode:
+                    pass
                 else:
                     self.prefix.splice(
                         """
@@ -1840,6 +1842,7 @@ class CppWrapperCodeGen(WrapperCodeGen):
             self.codegen_model_kernels()
             self.codegen_model_constructor()
         self.write_wrapper_decl()
+
         return super().generate(is_inference)
 
     def finalize_prefix(self):
@@ -1984,9 +1987,36 @@ class CppWrapperCodeGen(WrapperCodeGen):
             return
 
         result.writeline("'''\n)")
+        cache_cls_name = (
+            "CppWrapperCodeCacheForEager"
+            if config.aot_inductor.eager_mode
+            else "CppWrapperCodeCache"
+        )
+
+        kernel_meta_info = {}
+        if config.aot_inductor.eager_mode and config.aot_inductor.eager_op_name:
+            lines = []
+            for value in V.graph.graph_inputs.values():
+                if isinstance(value, TensorBox) and isinstance(
+                    value.layout, FixedLayout
+                ):
+                    device_type = value.get_device().type
+                    dtype = value.get_dtype()
+                    sizes = value.get_size()
+                    strides = value.get_stride()
+                    kernel_meta_info_item = (
+                        f"false;{device_type};{dtype};{sizes};{strides}"
+                    )
+                    lines.append(kernel_meta_info_item)
+            kernel_meta_info[config.aot_inductor.eager_op_name] = lines
+
         result.splice(
             f"""
-            inductor_entry = CppWrapperCodeCache.load_pybinding(["std::vector<at::Tensor>"], cpp_wrapper_src, {self.cuda})
+            inductor_entry = {cache_cls_name}.load_pybinding(
+                ["std::vector<at::Tensor>"],
+                cpp_wrapper_src,
+                cuda={self.cuda},
+                kernel_meta_info={kernel_meta_info})
             """
         )
 
@@ -2257,6 +2287,7 @@ class CppWrapperCodeGen(WrapperCodeGen):
                 and V.graph.aot_mode
                 and buffer.get_name() in V.graph.graph_inputs
             )
+            or config.aot_inductor.eager_mode
             else f"{buffer.get_name()}.reset();"
         )
 
