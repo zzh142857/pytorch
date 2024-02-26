@@ -72,6 +72,8 @@ def get_pr_body() -> str:
         ).json()["body"]
     else:
         re_match = re.match(r"^refs/tags/.*/(\d+)$", os.environ.get("GITHUB_REF", ""))
+        print(re_match)
+        print(os.environ.get("GITHUB_REF", ""))
         if re_match is not None:
             print(re_match.group(1))
             body += requests.get(

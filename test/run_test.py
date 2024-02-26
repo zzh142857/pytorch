@@ -1676,6 +1676,7 @@ def main():
     test_batch = TestBatch("all_tests", test_prioritizations.get_all_tests(), False)
 
     print_to_stderr(test_batch)
+    return
 
     if options.dry_run:
         return
