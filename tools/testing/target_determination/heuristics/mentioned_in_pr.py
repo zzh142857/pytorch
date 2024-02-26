@@ -59,13 +59,17 @@ def get_pr_body() -> str:
     body = ""
     pr_number = os.environ.get("PR_NUMBER")
     if pr_number is not None:
-        body += requests.get(
+        res = requests.get(
             f"https://api.github.com/repos/pytorch/pytorch/pulls/{pr_number}"
-        ).json()["body"]
+        ).json()
+        print(res)
+        body += res["body"]
     else:
         re_match = re.match(r"refs/tags/.*/(\d+)", os.environ.get("GITHUB_REF", ""))
         if re_match is not None:
-            body += requests.get(
+            res = requests.get(
                 f"https://api.github.com/repos/pytorch/pytorch/pulls/{re_match.group(1)}"
-            ).json()["body"]
+            ).json()
+            print(res)
+            body += res["body"]
     return body
