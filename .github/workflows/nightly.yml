@@ -28,23 +28,25 @@ jobs:
       group: arc-lf-linux.2xlarge.arc.canary
     timeout-minutes: 240
     steps:
-      - name: configure aws credentials
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          role-to-assume: arn:aws:iam::391835788720:role/gha-pytorch-ci-artifacts-role
-          role-session-name: gha-arc-runner
-          aws-region: us-east-1
+      - name: Print env
+        run: env
+      # - name: configure aws credentials
+      #   uses: aws-actions/configure-aws-credentials@v3
+      #   with:
+      #     role-to-assume: arn:aws:iam::391835788720:role/gha-pytorch-ci-artifacts-role
+      #     role-session-name: gha-arc-runner
+      #     aws-region: us-east-1
 
-      - run: echo "Hello world" > file.txt
+      # - run: echo "Hello world" > file.txt
 
-      - name: Store PyTorch Build Artifacts on S3
-        uses: seemethere/upload-artifact-s3@v5
-        with:
-          name: test-file
-          retention-days: 14
-          if-no-files-found: error
-          path: file.txt
-          s3-bucket: pytorch-ci-artifacts
+      # - name: Store PyTorch Build Artifacts on S3
+      #   uses: seemethere/upload-artifact-s3@v5
+      #   with:
+      #     name: test-file
+      #     retention-days: 14
+      #     if-no-files-found: error
+      #     path: file.txt
+      #     s3-bucket: pytorch-ci-artifacts
 
 #  docs-push: test
 #    name: docs push
