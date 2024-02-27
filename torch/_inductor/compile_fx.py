@@ -207,6 +207,52 @@ def _unlift_graph(mod, gm, graph_signature):
     return unlifted_gm
 
 
+def _get_subgraphs_names_and_input_nodes(gm):
+    for node in gm.graph.nodes:
+        if node.target == torch.ops.higher_order.cond:
+            true_subgraph_name = node.args[1].name
+            false_subgraph_name = node.args[2].name
+            subgraph_input_nodes = node.args[3]
+            yield true_subgraph_name, subgraph_input_nodes
+            yield false_subgraph_name, subgraph_input_nodes
+
+
+def _recursive_fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=False):
+    fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs)
+    for subgraph_name, input_nodes in _get_subgraphs_names_and_input_nodes(gm):
+        subgraph = getattr(gm, subgraph_name)
+        subgraph_inputs = [n.meta["val"] for n in input_nodes]
+        _recursive_fake_tensor_prop(
+            subgraph, subgraph_inputs, force_allow_non_fake_inputs
+        )
+
+
+def _recursive_pre_grad_passes(gm, fake_gm, example_inputs):
+    for subgraph_name, input_nodes in _get_subgraphs_names_and_input_nodes(fake_gm):
+        subgraph = getattr(gm, subgraph_name)
+        fake_subgraph = getattr(fake_gm, subgraph_name)
+        subgraph_inputs = [n.meta["val"] for n in input_nodes]
+        new_subgraph = _recursive_pre_grad_passes(
+            subgraph, fake_subgraph, subgraph_inputs
+        )
+        setattr(gm, subgraph_name, new_subgraph)
+    return pre_grad_passes(gm, example_inputs)
+
+
+def _recursive_joint_graph_passes(gm):
+    for subgraph_name, _ in _get_subgraphs_names_and_input_nodes(gm):
+        subgraph = getattr(gm, subgraph_name)
+        _recursive_joint_graph_passes(subgraph)
+    joint_graph_passes(gm)
+
+
+def _recursive_post_grad_passes(gm, is_inference: bool = False):
+    for subgraph_name, _ in _get_subgraphs_names_and_input_nodes(gm):
+        subgraph = getattr(gm, subgraph_name)
+        _recursive_post_grad_passes(subgraph, is_inference)
+    post_grad_passes(gm, is_inference)
+
+
 def split_const_gm(
     gm: torch.fx.GraphModule,
 ) -> Tuple[torch.fx.GraphModule, Dict[str, int]]:
@@ -295,7 +341,7 @@ def count_bytes_inner(
     fake_mode = fake_tensor_prop(gm, example_inputs)
 
     with V.set_fake_mode(fake_mode):
-        post_grad_passes(gm, False)
+        _recursive_post_grad_passes(gm, False)
 
     graph = GraphLowering(gm, shape_env=shape_env, num_static_inputs=num_fixed)
     with V.set_graph_handler(graph), V.set_real_inputs(example_inputs):
@@ -628,7 +674,7 @@ def fx_codegen_and_compile(
 
     with V.set_fake_mode(fake_mode):
         # has some issues with memory in training
-        post_grad_passes(gm, is_inference=is_inference)
+        _recursive_post_grad_passes(gm, is_inference=is_inference)
         V.debug.fx_graph_transformed(gm, example_inputs)
         post_grad_graphs_log.debug("%s", lazy_format_graph_code("AFTER POST GRAD", gm))
         trace_structured(
@@ -1037,7 +1083,7 @@ def fw_compiler_freezing(
     from torch._inductor.freezing import convert_conv_weights_to_channels_last, freeze
 
     # partition_fn won't be called
-    joint_graph_passes(aot_autograd_model)
+    _recursive_joint_graph_passes(aot_autograd_model)
 
     layout_opt = GraphLowering.decide_layout_opt(aot_autograd_model, is_inference=True)
     if layout_opt:
@@ -1165,6 +1211,10 @@ def compile_fx(
             recursive_compile_fx,
         )
 
+    fake_mode = detect_fake_mode(example_inputs_) or torch._subclasses.FakeTensorMode(
+        allow_non_fake_inputs=True
+    )
+
     if isinstance(model_, torch.fx.GraphModule):
         if isinstance(model_.graph._codegen, _PyTreeCodeGen):
             # this graph is the result of dynamo.export()
@@ -1174,7 +1224,22 @@ def compile_fx(
                 recursive_compile_fx,
             )
 
-        model_ = pre_grad_passes(model_, example_inputs_)
+        # we need fake_tensor_prop to be applied recursively to the nested subgraphs
+        # (if any), to be able to apply the pre_grad passes recursively to those nested
+        # subgraphs (as the pre_grad passes require example inputs per subgraph). to
+        # this end, we fakify the inputs and the model, recursively do fake_tensor_prop
+        # on the fake model, then iterate over the real and the fake model together to
+        # extract the subgraph inputs from the fake model and while applying the pre_grad
+        # passes to the real model. the rationale of fakifying the model and inputs is
+        # that we don't want any side effects (e.g., input or buffer mutation) to be
+        # applied to the real model during fake_tensor_prop.
+        fake_inputs = pytree.tree_map(
+            lambda t: fake_mode.from_tensor(t) if isinstance(t, torch.Tensor) else t,
+            example_inputs_,
+        )
+        fake_model = torch._dynamo.utils.deepcopy_to_fake_tensor(model_, fake_mode)
+        _recursive_fake_tensor_prop(fake_model, fake_inputs, False)
+        model_ = _recursive_pre_grad_passes(model_, fake_model, example_inputs_)
         optimus_scuba_log["inductor_pre_grad"] = counters["inductor"]
         signpost_event(
             "optimus",
@@ -1208,7 +1273,7 @@ def compile_fx(
     ):
         if is_inference:
             # partition_fn won't be called
-            joint_graph_passes(model)
+            _recursive_joint_graph_passes(model)
 
         num_rng_seed_offset_inputs = 2 if functorch_config.functionalize_rng_ops else 0
         fixed = len(example_inputs) - num_example_inputs - num_rng_seed_offset_inputs
@@ -1292,7 +1357,7 @@ def compile_fx(
         inference_compiler = functools.partial(fw_compiler_base, is_inference=True)
 
     def partition_fn(graph, joint_inputs, **kwargs):
-        joint_graph_passes(graph)
+        _recursive_joint_graph_passes(graph)
         return min_cut_rematerialization_partition(
             graph, joint_inputs, **kwargs, compiler="inductor"
         )
@@ -1315,9 +1380,6 @@ def compile_fx(
     # in torch._functorch/aot_autograd.py::aot_module_simplified::aot_function_simplified::new_func
     # once torchdynamo is merged into pytorch
 
-    fake_mode = detect_fake_mode(example_inputs_) or torch._subclasses.FakeTensorMode(
-        allow_non_fake_inputs=True
-    )
     tracing_context = (
         torch._guards.TracingContext.try_get()
         or torch._guards.TracingContext(fake_mode)
